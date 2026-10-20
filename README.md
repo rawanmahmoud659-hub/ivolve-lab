@@ -1,7 +1,7 @@
 # Lab 2: Building and Packaging an Application with Gradle
 
 ## Objective
-Build, test, package, run, and verify the Calculator application using Gradle.
+Build, test, run, and verify the Calculator application using Gradle.
 
 ## Step 1: Install Java, Gradle, and Git
 
