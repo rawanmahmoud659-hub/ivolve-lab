@@ -69,3 +69,5 @@ Confirm that the container and image have been removed.
 docker ps -a
 docker images app1
 ```
+![Docker Lab Screenshot](siz1.png)
+![Docker Lab Screenshot](test1.png)
