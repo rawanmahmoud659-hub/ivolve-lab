@@ -1,0 +1,3 @@
+FROM ivolve1
+ENV APP_NAME=iVolveApp3
+ENV APP_ENV=dev
