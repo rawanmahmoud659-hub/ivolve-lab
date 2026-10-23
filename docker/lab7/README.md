@@ -1,252 +1,202 @@
-# Microservices Application
+# Lab 7: Multi-Network Microservices, Volumes, and Bind Mounts
 
-## 1. Overview
+## Objective
+Deploy a microservices application using Docker with:
+- Three services: Frontend, Backend, and Notification.
+- Two isolated bridge networks.
+- Docker volumes for application logs.
+- A bind mount for persistent backend data.
+- Service-to-service communication using container names.
 
-This application contains three independent microservices:
+## 1. Clone the Application
 
-- **Frontend:** Provides a web page where users can create and view messages.
-- **Backend:** Receives messages, stores them in a JSON file, and sends notification requests.
-- **Notification:** Receives notification requests from the backend and records them in a log file.
+```bash
+cd ~/ivolve/docker/lab7
+git clone https://github.com/Ibrahim-Adel15/MicroserviceApp.git
+cd MicroserviceApp
+```
 
-The services communicate with each other over HTTP. The application does not use a database.
+## 2. Create Dockerfiles
 
-## 2. Project Structure
+Create a separate Dockerfile for each service:
 
 ```text
-.
-├── frontend/
-│   ├── app.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── backend/
-│   ├── app.py
-│   ├── requirements.txt
-│   └── Dockerfile
- ── notification/
-    ├── app.py
-    ├── requirements.txt
-    └── Dockerfile
-
+frontend/Dockerfile
+backend/Dockerfile
+notification/Dockerfile
 ```
 
-## 3. How the Services Work Together
+Each Dockerfile defines the base image, working directory, dependencies, application files, exposed port, and startup command.
+
+## 3. Build Docker Images
+
+```bash
+docker build -t frontend:lab7 ./frontend
+docker build -t backend:lab7 ./backend
+docker build -t notification:lab7 ./notification
+```
+
+Verify the images:
+
+```bash
+docker images
+```
+
+## 4. Create Docker Networks
+
+Create two isolated bridge networks with different subnets:
+
+```bash
+docker network create \
+  --driver bridge \
+  --subnet 172.28.0.0/16 \
+  frontend-backend
+
+docker network create \
+  --driver bridge \
+  --subnet 172.29.0.0/16 \
+  backend-notification
+```
+
+Verify the networks:
+
+```bash
+docker network ls
+docker network inspect frontend-backend
+docker network inspect backend-notification
+```
+
+## 5. Create Docker Volumes
+
+Create volumes to persist backend and notification logs:
+
+```bash
+docker volume create backend-logs
+docker volume create notification-logs
+```
+
+Verify the volumes:
+
+```bash
+docker volume ls
+```
+
+## 6. Create the Backend Data Directory
+
+Create a host directory to persist backend application data:
+
+```bash
+mkdir -p ~/ivolve/docker/lab7/backend-data
+```
+
+This directory will be mounted inside the backend container at `/app/data`.
+
+## 7. Run the Notification Container
+
+```bash
+docker run -d \
+  --name notification \
+  --network backend-notification \
+  --mount source=notification-logs,target=/app/logs \
+  notification:lab7
+```
+
+The notification service is connected to the `backend-notification` network.
+
+## 8. Run the Backend Container
+
+Start the backend on the `frontend-backend` network, configure the notification URL, and mount the persistent data directory and log volume:
+
+```bash
+docker run -d \
+  --name backend \
+  --network frontend-backend \
+  -e NOTIFICATION_URL=http://notification:5001/notify \
+  --mount type=bind,source="$HOME/ivolve/docker/lab7/backend-data",target=/app/data \
+  --mount source=backend-logs,target=/app/logs \
+  backend:lab7
+```
+
+Connect the backend to the second network:
+
+```bash
+docker network connect backend-notification backend
+```
+
+The backend is now connected to both networks.
+
+## 9. Run the Frontend Container
+
+```bash
+docker run -d \
+  --name frontend \
+  --network frontend-backend \
+  -e BACKEND_URL=http://backend:5000 \
+  -p 8080:3000 \
+  frontend:lab7
+```
+
+Open the application in a browser:
 
 ```text
-User / Browser
-      |
-      v
-Frontend (port 3000)
-      |
-      | HTTP requests to the backend
-      v
-Backend (port 5000)
-      |
-      +---- Saves messages to messages.json
-      |
-      +---- Sends notification requests
-                         |
-                         v
-                Notification (port 5001)
-                         |
-                         +---- Records notifications in a log file
+http://localhost:8080
 ```
 
-Typical request flow:
+The host port `8080` is mapped to the frontend container port `3000`.
 
-1. A user opens the frontend and views the message list.
-2. The frontend requests the existing messages from the backend.
-3. When the user submits a message, the frontend sends it to the backend.
-4. The backend saves the message in its JSON data file.
-5. The backend sends a notification request to the notification service.
-6. The notification service records the received message in its log file.
-7. The frontend retrieves the messages from the backend and displays them.
+## 10. Verify the Deployment
 
-The backend saves a message before attempting to send its notification. Therefore, a notification failure does not prevent the message from being stored.
+Check running containers:
 
-## 4. Frontend Service
-
-### Purpose
-
-The frontend provides the user interface. Users can:
-
-- View previously submitted messages.
-- Submit new messages.
-- Refresh the page to see the latest messages.
-- See an error message if the backend is unavailable.
-
-### Technology
-
-- Python
-- Flask
-- Requests
-
-### Listening Port
-
-- **Port:** `3000`
-- **Protocol:** HTTP
-
-The application listens on port `3000` inside its runtime environment.
-
-### Environment Variables
-
-| Variable | Example | Description |
-|---|---|---|
-| `BACKEND_URL` | `http://backend:5000` | Base URL used to communicate with the backend. |
-
-The frontend uses `BACKEND_URL` to retrieve messages and submit new ones. The hostname in the URL must be resolvable and reachable from the frontend's runtime environment.
-
-### Backend API Calls
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/messages` | Retrieve all stored messages. |
-| `POST` | `/messages` | Submit a new message. |
-
-### Logging
-
-The frontend writes errors, such as failed backend requests, through Python's standard logging output. It does not write a dedicated application log file.
-
-## 5. Backend Service
-
-### Purpose
-
-The backend implements the application's main logic. It:
-
-- Accepts and validates messages.
-- Stores messages in a JSON file.
-- Returns stored messages to the frontend.
-- Sends notification requests to the notification service.
-- Records application events and errors.
-
-### Technology
-
-- Python
-- Flask
-- Requests
-
-### Listening Port
-
-- **Port:** `5000`
-- **Protocol:** HTTP
-
-### Environment Variables
-
-| Variable | Example | Description |
-|---|---|---|
-| `NOTIFICATION_URL` | `http://notification:5001/notify` | Full URL used to send requests to the notification service. |
-
-The notification service hostname must be resolvable and reachable from the backend's runtime environment.
-
-### API Endpoints
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/health` | Returns the backend health status. |
-| `GET` | `/messages` | Returns all stored messages as JSON. |
-| `POST` | `/messages` | Validates and stores a new message. |
-
-### Application Data
-
-The backend stores messages in:
-
-```text
-/app/data/messages.json
+```bash
+docker ps
 ```
 
-Example contents:
+Check container logs:
 
-```json
-[
-  "Hello Docker",
-  "Learning microservices"
-]
+```bash
+docker logs frontend
+docker logs backend
+docker logs notification
 ```
 
-Each new message is added to the list and saved to the file. This is file-based storage; the application does not use a database.
+Inspect network connectivity:
 
-### Logging
-
-The backend writes application logs to:
-
-```text
-/app/logs/backend.log
+```bash
+docker network inspect frontend-backend
+docker network inspect backend-notification
 ```
 
-Log entries include message retrieval, successful message creation, successful notification requests, notification failures, and errors reading stored messages.
+Verify persistent backend data:
 
-## 6. Notification Service
-
-### Purpose
-
-The notification service receives requests from the backend and records the notifications. In this application, notification delivery is simulated: it does not send real emails, SMS messages, or push notifications.
-
-### Technology
-
-- Python
-- Flask
-
-### Listening Port
-
-- **Port:** `5001`
-- **Protocol:** HTTP
-
-### Environment Variables
-
-The notification service does not require any custom environment variables in the current implementation. The backend specifies the destination URL through its `NOTIFICATION_URL` variable.
-
-### API Endpoints
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/health` | Returns the notification service health status. |
-| `POST` | `/notify` | Receives a message and records it in the application log. |
-
-### Logging
-
-The notification service writes its application logs to:
-
-```text
-/app/logs/notification.log
+```bash
+cat ~/ivolve/docker/lab7/backend-data/messages.json
 ```
 
-Log entries include notification messages received from the backend.
+Check application log files:
 
-## 7. Ports Summary
+```bash
+docker exec backend ls -l /app/logs
+docker exec notification ls -l /app/logs
+```
 
-| Service | Listening Port | Purpose |
-|---|---:|---|
-| Frontend | `3000` | Web interface |
-| Backend | `5000` | Message processing and storage |
-| Notification | `5001` | Notification request handling |
+## 11. Test the Application
 
-These are the ports on which the applications listen. How each port is exposed or reached depends on the deployment environment.
+1. Open `http://localhost:8080`.
+2. Create a test message using the application interface.
+3. Verify that the message can be retrieved.
+4. Check the backend data directory to confirm persistence.
+5. Review the backend and notification logs.
 
-## 8. Environment Variables Summary
+## Expected Results
 
-| Service | Variable | Example Value | Used For |
-|---|---|---|---|
-| Frontend | `BACKEND_URL` | `http://backend:5000` | Calling the backend API |
-| Backend | `NOTIFICATION_URL` | `http://notification:5001/notify` | Sending notification requests |
-| Notification | None | Not required | No custom environment variable is used |
+- Three Docker images are built successfully.
+- Three containers run: frontend, backend, and notification.
+- The frontend and backend share the `frontend-backend` network.
+- The backend and notification share the `backend-notification` network.
+- Backend and notification logs are stored in Docker volumes.
+- Backend application data is persisted using a bind mount.
+- The frontend is accessible on port `8080`.
+- Messages can be created and retrieved successfully.
 
-The hostnames `backend` and `notification` are examples of service names. They must resolve to the corresponding services in the environment where the application runs. Inside an application process, `localhost` refers to that same runtime environment, not automatically to another microservice.
-
-## 9. Data and Log Paths Summary
-
-| Service | Path | Purpose |
-|---|---|---|
-| Frontend | Standard output/error | Frontend error messages |
-| Backend | `/app/data/messages.json` | Stored application messages |
-| Backend | `/app/logs/backend.log` | Backend application logs |
-| Notification | `/app/logs/notification.log` | Notification service logs |
-
-Application data and logs are kept in separate paths. The actual persistence of these files depends on how the services are deployed and how their filesystem paths are managed.
-
-## 10. Important Notes
-
-- The three services are separate applications with distinct responsibilities.
-- The frontend calls the backend; it does not call the notification service directly.
-- The backend calls the notification service after saving a message.
-- The notification service simulates notification handling by writing log entries.
-- The frontend uses standard logging output; the backend and notification service write dedicated log files.
-- Service URLs and hostnames must be configured so that each caller can reach the destination service.
+**Note:** Container ports, environment variable names, notification endpoints, and mount paths must match the actual application code. The commands above assume the services use ports `3000`, `5000`, and `5001`, respectively.
