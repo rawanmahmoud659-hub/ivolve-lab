@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ivolveapp
+  namespace: ivolve
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ivolveapp
+  template:
+    metadata:
+      labels:
+        app: ivolveapp
+    spec:
+      nodeSelector:
+        project: ivolve
+      tolerations:
+        - key: workload
+          operator: Equal
+          value: ivolveApp
+          effect: NoSchedule
+      initContainers:
+        - name: mysql-init
+          image: mysql:8.0
+          command:
+            - sh
+            - -c
+            - |
+              until mysqladmin ping -h "$DB_HOST" -u root -p"$MYSQL_ROOT_PASSWORD" --silent; do
+                echo "Waiting for MySQL..."
+                sleep 5
+              done
+
+              mysql -h "$DB_HOST" -u root -p"$MYSQL_ROOT_PASSWORD" <<-EOSQL
+                CREATE DATABASE IF NOT EXISTS ivolve;
+                CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+                ALTER USER '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASSWORD}';
+                GRANT ALL PRIVILEGES ON ivolve.* TO '${DB_USER}'@'%';
+                FLUSH PRIVILEGES;
+              EOSQL
+
+              echo "Database and application privileges configured successfully."
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ivolve-cm
+                  key: DB_HOST
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: ivolve-cm
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ivolve-secret
+                  key: DB_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ivolve-secret
+                  key: MYSQL_ROOT_PASSWORD
+      containers:
+        - name: ivolveapp
+          image: rawanm21/ivolve-app:latest
+          imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
+          ports:
+            - containerPort: 3000
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: ivolve-cm
+                  key: DB_HOST
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: ivolve-cm
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ivolve-secret
+                  key: DB_PASSWORD
+            - name: DB_NAME
+              value: ivolve
+          volumeMounts:
+            - name: app-storage
+              mountPath: /app/logs
+              subPath: app-logs
+      volumes:
+        - name: app-storage
+          persistentVolumeClaim:
+            claimName: mysql-data-ivolvedb-0
