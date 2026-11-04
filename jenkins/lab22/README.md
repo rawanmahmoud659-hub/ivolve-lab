@@ -469,14 +469,3 @@ The last command should show `rawanm21/demoapp:<Jenkins-build-number>`. Check Do
 - Docker group membership gives powerful host privileges; use trusted agents and jobs.
 - If Jenkins agents are ephemeral, use a persistent cache volume or expect Trivy to download its DB again.
 
-## Lab 22 requirements checklist
-
-- [x] Document cloning `Ibrahim-Adel15/DemoApp`.
-- [x] Define `BuildApp` (unit test and build).
-- [x] Define `BuildImage` (build, Trivy scan, push, local deletion).
-- [x] Define `DeployOnK8s` (edit manifest, apply, rollout).
-- [x] Provide a Jenkinsfile that invokes all three Shared Libraries.
-- [x] Document Jenkins agent configuration and Docker access.
-- [x] Document Kubernetes RBAC, Jenkins credentials, and verification.
-
-> The checklist confirms **documentation coverage**, not that every stage has been executed successfully in your environment.
